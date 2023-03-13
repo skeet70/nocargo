@@ -27,7 +27,7 @@ let
       head (attrValues defaultRegistries);
   };
 
-  shouldBeHelloWorld = drv: pkgs.runCommand "${drv.name}" {} ''
+  shouldBeHelloWorld = drv: pkgs.runCommand "${drv.name}" { } ''
     binaries=(${drv.bin}/bin/*)
     [[ ''${#binaries[@]} == 1 ]]
     got="$(''${binaries[0]})"
@@ -44,14 +44,16 @@ let
         inherit src gitSrcs extraRegistries;
       };
       profiles = mapAttrs (_: pkgs: shouldBeHelloWorld (head (attrValues pkgs))) ws;
-    in {
+    in
+    {
       inherit (profiles) dev release;
     };
 
-  mkWorkspaceTest = src: expectMembers: let
-    ws = mkRustPackageOrWorkspace { inherit src; };
-    gotMembers = attrNames ws.dev;
-  in
+  mkWorkspaceTest = src: expectMembers:
+    let
+      ws = mkRustPackageOrWorkspace { inherit src; };
+      gotMembers = attrNames ws.dev;
+    in
     assert assertMsg (gotMembers == expectMembers) ''
       Member assertion failed.
       expect: ${toString expectMembers}
@@ -62,20 +64,21 @@ let
   # Recursive Nix setup.
   # https://github.com/NixOS/nixpkgs/blob/e966ab3965a656efdd40b6ae0d8cec6183972edc/pkgs/top-level/make-tarball.nix#L45-L48
   mkGenInit = name: path:
-    pkgs.runCommand "gen-${name}" {
-      nativeBuildInputs = [ noc pkgs.nix ];
-      checkFlags =
-        mapAttrsToList (from: to: "--override-input ${from} ${to}") {
-          inherit (inputs) nixpkgs flake-utils;
-          nocargo = self;
-          "nocargo/registry-crates-io" = inputs.registry-crates-io;
-          registry-1 = inputs.registry-crates-io;
-          git-1 = git-semver-1-0-0;
-          git-2 = git-semver-1-0-0;
-          git-3 = git-semver-1-0-0;
-          git-4 = git-semver-1-0-0;
-        };
-    } ''
+    pkgs.runCommand "gen-${name}"
+      {
+        nativeBuildInputs = [ noc pkgs.nix ];
+        checkFlags =
+          mapAttrsToList (from: to: "--override-input ${from} ${to}") {
+            inherit (inputs) nixpkgs flake-utils;
+            nocargo = self;
+            "nocargo/registry-crates-io" = inputs.registry-crates-io;
+            registry-1 = inputs.registry-crates-io;
+            git-1 = git-semver-1-0-0;
+            git-2 = git-semver-1-0-0;
+            git-3 = git-semver-1-0-0;
+            git-4 = git-semver-1-0-0;
+          };
+      } ''
       cp -r ${path} src
       chmod -R u+w src
       cd src
@@ -104,25 +107,49 @@ let
         "''${nixFlags[@]}"
     '';
 
+  # shouldBeTestTest = drv: pkgs.runCommand "${drv.name}" { } ''
+  #   binaries=(${drv.bin}/test-bin/*)
+  #   [[ ''${#binaries[@]} == 1 ]]
+  #   got="$(''${binaries[0]})"
+  #   expect="Hello, world!"
+  #   echo "Got   : $got"
+  #   echo "Expect: $expect"
+  #   [[ "$got" == "$expect" ]]
+  #   touch $out
+  # '';
+
+  # mkTestTest = src:
+  #   let
+  #     ws = mkRustPackageOrWorkspace {
+  #       inherit src gitSrcs extraRegistries;
+  #     };
+  #     profiles = mapAttrs (_: pkgs: shouldBeTestTest (head (attrValues pkgs))) ws;
+  #   in
+  #   {
+  #     inherit (profiles) release;
+  #   };
+
 in
 {
-  _1000-hello-worlds = mapAttrs (name: path: mkHelloWorldTest path) {
-    build-deps = ./build-deps;
-    build-feature-env-vars = ./build-feature-env-vars;
-    cap-lints = ./cap-lints;
-    crate-names = ./crate-names;
-    custom-lib-name = ./custom-lib-name;
-    dependency-v1 = ./dependency-v1;
-    dependency-v2 = ./dependency-v2;
-    dependency-v3 = ./dependency-v3;
-    features = ./features;
-    libz-dynamic = ./libz-dynamic;
-    libz-static = ./libz-static;
-    lto-fat = ./lto-fat;
-    lto-proc-macro = ./lto-proc-macro;
-    lto-thin = ./lto-thin;
-    tokio-app = ./tokio-app;
-  } // {
+  _1000-hello-worlds = mapAttrs (name: path: mkHelloWorldTest path)
+    {
+      build-deps = ./build-deps;
+      build-feature-env-vars = ./build-feature-env-vars;
+      cap-lints = ./cap-lints;
+      crate-names = ./crate-names;
+      custom-lib-name = ./custom-lib-name;
+      dependency-v1 = ./dependency-v1;
+      dependency-v2 = ./dependency-v2;
+      dependency-v3 = ./dependency-v3;
+      features = ./features;
+      libz-dynamic = ./libz-dynamic;
+      libz-static = ./libz-static;
+      lto-fat = ./lto-fat;
+      lto-proc-macro = ./lto-proc-macro;
+      lto-thin = ./lto-thin;
+      simple-test = ./simple-test;
+      tokio-app = ./tokio-app;
+    } // {
     workspace-inline = mkWorkspaceTest ./workspace-inline [ "bar" "baz" "foo" ];
     workspace-proc-macro-lto = mkWorkspaceTest ./workspace-proc-macro-lto [ "acro" "procm" ];
     workspace-virtual = mkWorkspaceTest ./workspace-virtual [ "bar" "foo" ];

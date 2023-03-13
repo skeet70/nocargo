@@ -4,34 +4,35 @@
 , src
 , rustc ? buildPackages.rustc
 , links ? null
-# [ { rename = "foo" /* or null */; drv = <derivation>; } ]
-, dependencies ? []
-# Normal dependencies with non empty `links`, which will propagate `DEP_<LINKS>_<META>` environments to build script.
+  # [ { rename = "foo" /* or null */; drv = <derivation>; } ]
+, dependencies ? [ ]
+  # Normal dependencies with non empty `links`, which will propagate `DEP_<LINKS>_<META>` environments to build script.
 , linksDependencies ? dependencies
-, buildDependencies ? []
-, features ? []
-, profile ? {}
+, buildDependencies ? [ ]
+, features ? [ ]
+, profile ? { }
 , capLints ? null
-, buildFlags ? []
-, buildScriptBuildFlags ? []
+, buildFlags ? [ ]
+, buildScriptBuildFlags ? [ ]
 , procMacro ? false
 
-, nativeBuildInputs ? []
-, propagatedBuildInputs ? []
+, nativeBuildInputs ? [ ]
+, propagatedBuildInputs ? [ ]
 , ...
 }@args:
 let
   inherit (nocargo-lib.target-cfg) platformToCfgAttrs;
 
-  mkRustcMeta = dependencies: features: let
-    deps = lib.concatMapStrings (dep: dep.drv.rustcMeta) dependencies;
-    feats = lib.concatStringsSep ";" features;
-    final = "${pname} ${version} ${feats} ${deps}";
-  in
+  mkRustcMeta = dependencies: features:
+    let
+      deps = lib.concatMapStrings (dep: dep.drv.rustcMeta) dependencies;
+      feats = lib.concatStringsSep ";" features;
+      final = "${pname} ${version} ${feats} ${deps}";
+    in
     lib.substring 0 16 (builtins.hashString "sha256" final);
 
-  buildRustcMeta = mkRustcMeta buildDependencies [];
-  rustcMeta = mkRustcMeta dependencies [];
+  buildRustcMeta = mkRustcMeta buildDependencies [ ];
+  rustcMeta = mkRustcMeta dependencies [ ];
 
   # TODO: Pass target binary paths instead of drv here?
   mkDeps = map ({ rename, drv, ... }: lib.concatStringsSep ":" [
@@ -54,7 +55,7 @@ let
 
   # https://doc.rust-lang.org/cargo/reference/profiles.html
   profileToRustcFlags = p:
-    []
+    [ ]
     ++ lib.optional (p.opt-level or 0 != 0) "-Copt-level=${toString p.opt-level}"
     ++ lib.optional (p.debug or false != false) "-Cdebuginfo=${if p.debug == true then "2" else toString p.debug}"
     # TODO: `-Cstrip` is not handled since stdenv will always strip them.
@@ -67,7 +68,7 @@ let
     ++ lib.optional (p.rpath or false) "-Crpath"
 
     ++ lib.optional (p.lto or false == false) "-Cembed-bitcode=no"
-    ;
+  ;
 
   convertProfile = p: {
     buildFlags =
@@ -76,7 +77,7 @@ let
       ++ buildFlags;
 
     buildScriptBuildFlags =
-      profileToRustcFlags (p.build-override or {})
+      profileToRustcFlags (p.build-override or { })
       ++ buildScriptBuildFlags;
 
     # Build script environments.
@@ -86,7 +87,7 @@ let
   };
 
   profile' = convertProfile profile;
-  buildProfile' = convertProfile (profile.build-override or {});
+  buildProfile' = convertProfile (profile.build-override or { });
 
   commonArgs = {
     inherit pname version src;
@@ -117,12 +118,15 @@ let
     "propagatedBuildInputs"
   ];
 
-  cargoCfgs = lib.mapAttrs' (key: value: {
-    name = "CARGO_CFG_${lib.toUpper key}";
-    value = if lib.isList value then lib.concatStringsSep "," value
-      else if value == true then ""
-      else value;
-  }) (platformToCfgAttrs stdenv.hostPlatform);
+  cargoCfgs = lib.mapAttrs'
+    (key: value: {
+      name = "CARGO_CFG_${lib.toUpper key}";
+      value =
+        if lib.isList value then lib.concatStringsSep "," value
+        else if value == true then ""
+        else value;
+    })
+    (platformToCfgAttrs stdenv.hostPlatform);
 
   buildDrv = stdenv.mkDerivation ({
     name = "rust_${pname}-${version}-build";
@@ -175,8 +179,24 @@ let
     dependencies = libDeps;
   } // commonArgs // profile');
 
+  testDrv = stdenv.mkDerivation ({
+    name = "rust_${pname}-${version}-test-bin";
+    builder = ./builder-test.sh;
+    inherit propagatedBuildInputs builderCommon buildDrv features rustcMeta;
+
+    libOutDrv = libDrv.out;
+    libDevDrv = libDrv.dev;
+
+    # This requires linking.
+    # Include transitively propagated upstream `-sys` crates' ld dependencies.
+    buildInputs = toDevDrvs dependencies;
+
+    dependencies = libDeps;
+  } // commonArgs // profile');
+
 in
-  libDrv // {
-    build = buildDrv;
-    bin = binDrv;
-  }
+libDrv // {
+  build = buildDrv;
+  bin = binDrv;
+  test = testDrv;
+}
